@@ -1,0 +1,13 @@
+# This library depends on python-memcached, you should pip install python-memcached.
+import kvtx
+
+# you must use TransactionalMemacheClient. It delegates methods to python-memcache
+mc = kvtx.TransactionalMemcacheClient(['127.0.0.1:11211'])
+
+# define transaction method, it takes setter(2args) and getter(1arg) 
+def increment(setter, getter):
+  d = getter('counter')
+  setter('counter', d+1)
+
+# call transaction like this. rr means "Read Repeatable"
+result = rr_transaction(mc, incr)
