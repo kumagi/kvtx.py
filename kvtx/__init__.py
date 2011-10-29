@@ -2,9 +2,12 @@
 import time
 
 from time import sleep
+from random import Random
 from random import randint
 
 class AbortException(Exception):
+  pass
+class ConnectionError(Exception):
   pass
 
 def read_committed(old, new, status):
@@ -31,7 +34,8 @@ class TransactionalMemcacheClient(object):
     from memcache import Client
     self.mc = Client(*args)
     self.del_que = []
-
+    self.random = Random()
+    self.random.seed()
     from threading import Thread
     self.del_thread = Thread(target = lambda:self._async_delete())
     self.del_thread.setDaemon(True)
@@ -41,7 +45,7 @@ class TransactionalMemcacheClient(object):
   def _async_delete(self):
     while True:
       try:
-        time.sleep(5)
+        sleep(5)
         while 0 < len(self.del_que):
           target = self.del_que.pop(0)
           if target != None:
@@ -54,21 +58,22 @@ class TransactionalMemcacheClient(object):
 
 class MemTr(object):
   """ transaction on memcached """
-  @staticmethod
-  def random_string(length):
+  def _random_string(self,length):
     string = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
     ans = ''
     for i in range(length):
-      ans += string[randint(0, len(string) - 1)]
+      ans += string[self.mc.random.randint(0, len(string) - 1)]
     return ans
   def add_random(self,value):
     length = 8
     while 1:
-      key = self.prefix + MemTr.random_string(length)
+      key = self.prefix + self._random_string(length)
       result = self.mc.add(key, value)
       if result == True:
         return key
-      length += 1
+      if not isinstance(result, bool):
+        raise ConnectionError
+      length += self.mc.random.randint(0, 10) == 0
   def __init__(self, client):
     self.prefix = 'MTP:'
     self.mc = client
@@ -89,7 +94,7 @@ class MemTr(object):
         self.count += 1
       else:
         self.count = 0
-        #print 'cas: ', other_status, '-> abort'
+        print 'cas: ', other_status, '-> abort'
         self.mc.cas(other_status, 'abort')
   def set(self, key, value):
     resolver = self.resolver(self.mc)
@@ -213,7 +218,7 @@ def rc_transaction(kvs, target_transaction):
     try:
       target_transaction(setter, getter, repeatable_getter)
       if transaction.commit() == True:
-        return transaction.cache
+        return transaction.cachez
     except AbortException:
       continue
 
@@ -226,6 +231,9 @@ if __name__ == '__main__':
     #print "counter:",d
     setter('counter', d+1)
   result = rr_transaction(mc, init)
+  from time import time
+  begin = time()
   for i in range(10000):
     result = rr_transaction(mc, incr)
   print result['counter']
+  print str(10000 / (time() - begin)) + " qps"
